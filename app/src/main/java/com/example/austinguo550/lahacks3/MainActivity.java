@@ -1,6 +1,7 @@
 package com.example.austinguo550.lahacks3;
 
 import android.Manifest;
+import android.content.ActivityNotFoundException;
 import android.content.ContentUris;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
@@ -32,7 +33,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
+import java.util.zip.Inflater;
 
 import android.app.Activity;
 import android.content.ComponentName;
@@ -70,6 +73,10 @@ public class MainActivity extends AppCompatActivity {
     private String sbyte;
     private int packetNum = 0;
     private int slength;
+    private boolean hasRead = false;
+    private boolean sender = false;
+    private String secretMessage;
+    private int byteSize;
 
     private boolean permissionToRecordAccepted = false;
     private String [] permissions = {Manifest.permission.RECORD_AUDIO};
@@ -470,8 +477,10 @@ public class MainActivity extends AppCompatActivity {
                         extension = filename;
                         for(int i = filename.length(); i < 50; i++) {
                             extension += " ";
-                        }
+                        }   /// use last index of space
+                        extension += String.valueOf(s.length());    // extension is good for the # of bytes
                         mSessionService.startSession(extension);
+                        sender = true;
                     }
                 });
             }
@@ -551,7 +560,11 @@ public class MainActivity extends AppCompatActivity {
                 mHandler.post(new Runnable() // have to do this on the UI thread
                 {
                     public void run() {
-                        updateResults();
+                        try {
+                            updateResults();
+                        } catch (DataFormatException e) {
+                            e.printStackTrace();
+                        }
                     }
                 });
 
@@ -598,29 +611,86 @@ public class MainActivity extends AppCompatActivity {
         rb.setChecked(true);
     }
 
-    private void updateResults() {
+    private void updateResults() throws DataFormatException {
         if (mSessionService.getStatus() == SessionService.SessionStatus.LISTENING) {
             textStatus.setText(mSessionService.getBacklogStatus());
             Log.d("DEBUG", textStatus.toString());
-            textListen.setText(mSessionService.getListenString());
+            String sReceiver = mSessionService.getListenString();
+            textListen.setText(sReceiver);
 
             Button b = (Button) findViewById(R.id.button7);
             b.setText("Stop listening");
+
+            if (!sender && sReceiver != "") {  // if you are not the sender, which means you are receiving signals
+                //TODO
+                if (!hasRead) {
+                    filename = sReceiver.substring(0, sReceiver.indexOf(" "));
+                    byteSize = Integer.valueOf(sReceiver.substring(sReceiver.lastIndexOf(" ")+1, sReceiver.length()));
+                    hasRead = true;
+                }
+                else {
+                    secretMessage += sReceiver;
+                }
+                mSessionService.stopListening();
+                if (secretMessage.length() >= byteSize) {
+                    mSessionService.sessionFinished();
+                }
+                else {
+                    // Restarts listening and bypasses automatic delay and movement to finishing
+                    //mSessionService.sessionReset();
+                    mSessionService.listen();
+                }
+
+            }
+
         } else if (mSessionService.getStatus() == SessionService.SessionStatus.FINISHED) {
-            if (slength > 0) {
-                if (s.length() < packetNum*100 + 100) {
-                    sbyte = s.substring(packetNum*100, s.length());
+            if (!sender) {
+                //Convert STRING TO BYTES
+                byte[] output = Base64.decode(secretMessage, Base64.DEFAULT);
+
+                //Decompress bytes array and store into buffer
+                hasRead = false;
+
+                byte[] buffer = new byte[2000]; //2kb output maximum
+                Inflater decompresser = new Inflater();
+                decompresser.setInput(output); //Previously used setInput(output, 0, compressedDataLength)
+                int uncompressedDataLength = decompresser.inflate(buffer); //using same buffer as when compressing bytes
+                decompresser.end();
+
+                //Resize buffer and put back in output array
+                output = new byte[uncompressedDataLength];
+                System.arraycopy(buffer, 0, output, 0, uncompressedDataLength);
+
+                //Reconvert into file
+                File file = new File(filename);
+                try {
+                    FileUtils.writeByteArrayToFile(file, output);
+                } catch (IOException e) {
+                    e.printStackTrace();
                 }
-                else  {
-                    sbyte = s.substring(packetNum*100, packetNum*100 + 100);
+
+                // Open the File
+                openFile(file);
+
+            }
+            if (sender) {
+                if (slength > 0) {
+                    if (s.length() < packetNum*100 + 100) {
+                        sbyte = s.substring(packetNum*100, s.length());
+                    }
+                    else  {
+                        sbyte = s.substring(packetNum*100, packetNum*100 + 100);
+                    }
+                    mSessionService.startSession(sbyte);
+                    slength--;
+                    packetNum++;
                 }
-                mSessionService.startSession(sbyte);
-                slength--;
-                packetNum++;
+                else if (slength == 0){
+                    packetNum = 0;
+                    sender = false;
+                }
             }
-            else if (slength ==0){
-                packetNum = 0;
-            }
+
             Button b = (Button) findViewById(R.id.button7);
             b.setText("Listen");
             textStatus.setText("");
@@ -645,6 +715,59 @@ public class MainActivity extends AppCompatActivity {
 	 *
 	 * }
 	 */
+
+    private void openFile(File url) {
+
+        try {
+
+            Uri uri = Uri.fromFile(url);
+
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            if (url.toString().contains(".doc") || url.toString().contains(".docx")) {
+                // Word document
+                intent.setDataAndType(uri, "application/msword");
+            } else if (url.toString().contains(".pdf")) {
+                // PDF file
+                intent.setDataAndType(uri, "application/pdf");
+            } else if (url.toString().contains(".ppt") || url.toString().contains(".pptx")) {
+                // Powerpoint file
+                intent.setDataAndType(uri, "application/vnd.ms-powerpoint");
+            } else if (url.toString().contains(".xls") || url.toString().contains(".xlsx")) {
+                // Excel file
+                intent.setDataAndType(uri, "application/vnd.ms-excel");
+            } else if (url.toString().contains(".zip") || url.toString().contains(".rar")) {
+                // WAV audio file
+                intent.setDataAndType(uri, "application/x-wav");
+            } else if (url.toString().contains(".rtf")) {
+                // RTF file
+                intent.setDataAndType(uri, "application/rtf");
+            } else if (url.toString().contains(".wav") || url.toString().contains(".mp3")) {
+                // WAV audio file
+                intent.setDataAndType(uri, "audio/x-wav");
+            } else if (url.toString().contains(".gif")) {
+                // GIF file
+                intent.setDataAndType(uri, "image/gif");
+            } else if (url.toString().contains(".jpg") || url.toString().contains(".jpeg") || url.toString().contains(".png")) {
+                // JPG file
+                intent.setDataAndType(uri, "image/jpeg");
+            } else if (url.toString().contains(".txt")) {
+                // Text file
+                intent.setDataAndType(uri, "text/plain");
+            } else if (url.toString().contains(".3gp") || url.toString().contains(".mpg") ||
+                    url.toString().contains(".mpeg") || url.toString().contains(".mpe") || url.toString().contains(".mp4") || url.toString().contains(".avi")) {
+                // Video files
+                intent.setDataAndType(uri, "video/*");
+            } else {
+                intent.setDataAndType(uri, "*/*");
+            }
+
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getApplicationContext().startActivity(intent);
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(getApplicationContext(), "No application found which can open the file", Toast.LENGTH_SHORT).show();
+        }
+    }
+
 
     private byte[] readDataFromUri(Uri uri) {
         byte[] buffer = null;
