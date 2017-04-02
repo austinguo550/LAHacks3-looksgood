@@ -285,7 +285,7 @@ public class SessionService extends Service {
 		timeoutCounter = sessionTimeout;
 		timeoutTask = new TimeoutTimerTask();
 		if (afterPlay)
-			mTimer.schedule(timeoutTask, secondsPlay * 3000, 1000);
+			mTimer.schedule(timeoutTask, secondsPlay * 1500, 1000);
 		else
 			mTimer.schedule(timeoutTask, 0, 1000);
 	}

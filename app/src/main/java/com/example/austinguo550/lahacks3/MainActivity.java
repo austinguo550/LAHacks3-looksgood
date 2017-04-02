@@ -67,6 +67,8 @@ public class MainActivity extends AppCompatActivity {
     private static final int FILE_SELECT_CODE = 0;
 
     private String s;
+    private String sbyte;
+    private int packetNum = 0;
     private int slength;
 
     private boolean permissionToRecordAccepted = false;
@@ -279,7 +281,6 @@ public class MainActivity extends AppCompatActivity {
                         System.arraycopy(buffer, 0, input, 0, compressedDataLength);
 
                         s = Base64.encodeToString(input, Base64.DEFAULT);
-                        slength = s.length();
                         Toast.makeText(getApplicationContext(), String.valueOf(s.length()), Toast.LENGTH_LONG).show();
                         Toast.makeText(getApplicationContext(), "zip completed with length " + input.length, Toast.LENGTH_LONG).show();
 
@@ -463,7 +464,14 @@ public class MainActivity extends AppCompatActivity {
 //                        Toast.makeText(getApplicationContext(), String.valueOf(input.length), Toast.LENGTH_LONG);
 //               byte[] testBytes = input;
 //
-                        mSessionService.startSession(s);
+                        slength = s.length()/100;
+                        String extension;
+                        // Encode File extension into bytes
+                        extension = filename;
+                        for(int i = filename.length(); i < 50; i++) {
+                            extension += " ";
+                        }
+                        mSessionService.startSession(extension);
                     }
                 });
             }
@@ -599,9 +607,24 @@ public class MainActivity extends AppCompatActivity {
             Button b = (Button) findViewById(R.id.button7);
             b.setText("Stop listening");
         } else if (mSessionService.getStatus() == SessionService.SessionStatus.FINISHED) {
+            if (slength > 0) {
+                if (s.length() < packetNum*100 + 100) {
+                    sbyte = s.substring(packetNum*100, s.length());
+                }
+                else  {
+                    sbyte = s.substring(packetNum*100, packetNum*100 + 100);
+                }
+                mSessionService.startSession(sbyte);
+                slength--;
+                packetNum++;
+            }
+            else if (slength ==0){
+                packetNum = 0;
+            }
             Button b = (Button) findViewById(R.id.button7);
             b.setText("Listen");
             textStatus.setText("");
+
         } else {
             textStatus.setText("");
         }
